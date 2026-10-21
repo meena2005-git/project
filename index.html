@@ -1,0 +1,262 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Study Planner</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #f0f4ff;
+  margin: 0;
+  padding: 20px;
+  color: #222;
+}
+
+.container { max-width: 700px; margin: auto; }
+
+header {
+  background: #4338ca;
+  color: white;
+  padding: 25px;
+  border-radius: 15px;
+  text-align: center;
+}
+
+.card {
+  background: white;
+  padding: 20px;
+  margin-top: 18px;
+  border-radius: 12px;
+  box-shadow: 0 3px 12px #0001;
+}
+
+input, textarea, button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 7px;
+  border: 1px solid #ccc;
+  font-size: 15px;
+}
+
+button {
+  background: #4338ca;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+button:hover { background: #312e81; }
+button:disabled { opacity: 0.6; cursor: wait; }
+
+li {
+  background: #f5f5ff;
+  margin: 8px 0;
+  padding: 12px;
+  border-radius: 7px;
+  overflow-wrap: anywhere;
+}
+
+.done { text-decoration: line-through; color: gray; }
+.delete { background: #dc2626; margin-top: 5px; }
+
+#result, #summary {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+footer { text-align: center; margin-top: 20px; color: #666; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<header>
+  <h1>📚 AI Study Planner</h1>
+  <p>Plan your studies. Achieve your goals!</p>
+</header>
+
+<div class="card">
+  <h2>➕ Add Study Task</h2>
+  <input id="subject" placeholder="Enter subject name">
+  <input id="examDate" type="date">
+  <input id="task" placeholder="Enter study task">
+  <button onclick="addTask()">Add Task</button>
+</div>
+
+<div class="card">
+  <h2>📋 My Study Tasks</h2>
+  <p id="count">Tasks: 0</p>
+  <ul id="taskList"></ul>
+</div>
+
+<div class="card">
+  <h2>🤖 AI Study Plan</h2>
+  <p>AI will create a timetable based on your pending tasks.</p>
+  <button id="planBtn" onclick="generatePlan()">Generate AI Plan</button>
+  <div id="result" aria-live="polite"></div>
+</div>
+
+<div class="card">
+  <h2>📝 AI Notes Summarizer</h2>
+  <textarea id="notes" rows="5"
+    placeholder="Paste your study notes here"></textarea>
+  <button id="summaryBtn" onclick="summarize()">Summarize with AI</button>
+  <div id="summary" aria-live="polite"></div>
+</div>
+
+<footer>
+  <p>AI Study Planner | Made for Students 💙</p>
+</footer>
+
+</div>
+
+<script>
+let tasks = JSON.parse(localStorage.getItem("studyTasks") || "[]");
+
+function saveTasks() {
+  localStorage.setItem("studyTasks", JSON.stringify(tasks));
+  displayTasks();
+}
+
+function addTask() {
+  const subject = document.getElementById("subject").value.trim();
+  const date = document.getElementById("examDate").value;
+  const task = document.getElementById("task").value.trim();
+
+  if (!subject || !task) {
+    alert("Enter subject and study task!");
+    return;
+  }
+
+  tasks.push({ subject, date, task, done: false });
+
+  document.getElementById("subject").value = "";
+  document.getElementById("examDate").value = "";
+  document.getElementById("task").value = "";
+
+  saveTasks();
+}
+
+function displayTasks() {
+  const list = document.getElementById("taskList");
+  list.replaceChildren();
+
+  tasks.forEach((item, index) => {
+    const li = document.createElement("li");
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+
+    checkbox.type = "checkbox";
+    checkbox.checked = item.done;
+    checkbox.style.width = "auto";
+    checkbox.style.marginRight = "8px";
+
+    checkbox.onchange = () => {
+      tasks[index].done = checkbox.checked;
+      saveTasks();
+    };
+
+    label.className = item.done ? "done" : "";
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(
+      item.subject + " - " + item.task +
+      (item.date ? " (Exam: " + item.date + ")" : "")
+    ));
+
+    const del = document.createElement("button");
+    del.textContent = "Delete";
+    del.className = "delete";
+    del.onclick = () => {
+      tasks.splice(index, 1);
+      saveTasks();
+    };
+
+    li.append(label, del);
+    list.appendChild(li);
+  });
+
+  document.getElementById("count").textContent =
+    "Tasks: " + tasks.filter(t => !t.done).length +
+    " remaining / " + tasks.length + " total";
+}
+
+async function askAI(prompt) {
+  const response = await fetch("/api/plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "AI request failed");
+  }
+
+  return data.plan;
+}
+
+async function generatePlan() {
+  const pending = tasks.filter(t => !t.done);
+  const result = document.getElementById("result");
+  const btn = document.getElementById("planBtn");
+
+  if (!pending.length) {
+    result.textContent = "Please add a pending study task first!";
+    return;
+  }
+
+  btn.disabled = true;
+  result.textContent = "🤖 AI is preparing your study plan...";
+
+  try {
+    const prompt =
+      "Create a practical daily study timetable for a college student. " +
+      "Include study sessions, breaks, priorities and exam dates. " +
+      "Use simple English. Tasks: " + JSON.stringify(pending);
+
+    result.textContent = await askAI(prompt);
+  } catch (error) {
+    result.textContent = "Error: " + error.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function summarize() {
+  const notes = document.getElementById("notes").value.trim();
+  const output = document.getElementById("summary");
+  const btn = document.getElementById("summaryBtn");
+
+  if (!notes) {
+    alert("Please enter your notes!");
+    return;
+  }
+
+  btn.disabled = true;
+  output.textContent = "🤖 AI is summarizing your notes...";
+
+  try {
+    output.textContent = await askAI(
+      "Summarize these study notes in simple English. " +
+      "Give important points and key terms. Notes:\n" + notes
+    );
+  } catch (error) {
+    output.textContent = "Error: " + error.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+displayTasks();
+</script>
+</body>
+</html>
